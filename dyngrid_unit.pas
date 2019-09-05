@@ -896,7 +896,7 @@ function TdynGrid.util_zeichenfilter(strdaten: string): string;
 var
   i: integer;
 begin
-  util_zeichenfilter := strdaten;
+  Result := strdaten;
 
   { Steuerzeichen filtern und daten einfügen }
   for i := 1 to length(strdaten) do
@@ -905,7 +905,7 @@ begin
       strdaten[i] := ' ';
   end;
 
-  util_zeichenfilter := strdaten;
+  Result := strdaten;
 end;
 
 function TdynGrid.gethighlightrow: integer;
