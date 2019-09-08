@@ -150,7 +150,7 @@ type
     function getcellRaw(c, r: integer): TDyngridDatatype;
 
     function getcell(c, r: integer): string;
-    procedure setcell(c, r: integer; strdaten: string);
+    procedure setcell(c, r: integer; const strdaten: string);
 
     procedure setdrawgridautorepaint(wert: boolean);
     function getdrawgridautorepaint: boolean;
@@ -173,7 +173,7 @@ type
     function getmrc: integer;
 
     { --- folgendes ist für den normalen Betrieb --- }
-    constructor Create(setdebugname: string; setdrawgrid: PDrawgrid);
+    constructor Create(const setdebugname: string; setdrawgrid: PDrawgrid);
     destructor Destroy; override;
 
     procedure setdrawgrid(setdrawgrid: PDrawgrid);
@@ -200,11 +200,11 @@ type
     property col: integer read getcol write setcol;
 
     { --- folgendes ist für das laden und Speichern der Daten --- }
-    function checkfileidentifier(datei: string; identifier: string): boolean;
+    function checkfileidentifier(const datei: string; identifier: string): boolean;
     // autodetect BOM
-    function loadfromfile(datei: string; optionalidentifier: string): boolean;
+    function loadfromfile(const datei: string; optionalidentifier: string): boolean;
     // autodetect BOM
-    function savetofile(datei: string; optionalidentifier: string): boolean;
+    function savetofile(const datei: string; optionalidentifier: string): boolean;
     // DynGrid Encoding mit BOM
 
     { --- folgendes ist als sonderfunktion freigegeben --- }
@@ -240,7 +240,7 @@ const
   // ----------------------------------------------------------------------------
   // constructor/destructor -----------------------------------------------------
 
-constructor TdynGrid.Create(setdebugname: string; setdrawgrid: PDrawgrid);
+constructor TdynGrid.Create(const setdebugname: string; setdrawgrid: PDrawgrid);
 begin
   inherited Create; { constructor von TObject aufrufen }
   datamemblockcurrent := datamemblockdefault;
@@ -275,7 +275,7 @@ end;
 // ----------------------------------------------------------------------------
 // load/save ------------------------------------------------------------------
 
-function TdynGrid.checkfileidentifier(datei: string;
+function TdynGrid.checkfileidentifier(const datei: string;
   identifier: string): boolean;
 var
   frtext: TTextFileReader;
@@ -323,7 +323,7 @@ begin
   end;
 end;
 
-function TdynGrid.loadfromfile(datei: string;
+function TdynGrid.loadfromfile(const datei: string;
   optionalidentifier: string): boolean;
 
   function int_loadfromfile(var error: string): boolean;
@@ -444,7 +444,7 @@ begin
 
 end;
 
-function TdynGrid.savetofile(datei: string; optionalidentifier: string)
+function TdynGrid.savetofile(const datei: string; optionalidentifier: string)
   : boolean;
 var
   fwtext: TTextFileWriter;
@@ -594,7 +594,7 @@ begin
   if Sender = nil then
     exit;
 
-  try
+  //try
     // KEINE Critical Section da OnDrawCell von ProgrammThread aufgerufen wird
 
     if (high(daten) >= (ACol - ccinvis)) and (ACol >= 0) and
@@ -626,9 +626,9 @@ begin
     { ggf. extern angebundene DrawCell aufrufen }
     if assigned(FOnDrawcell) then
       FOnDrawcell(Sender, ACol, ARow, Rect, State);
-  finally
+  //finally
     //
-  end
+  //end
 
 end;
 
@@ -859,7 +859,7 @@ begin
   Result := String(daten[c][r]);
 end;
 
-procedure TdynGrid.setcell(c, r: integer; strdaten: string);
+procedure TdynGrid.setcell(c, r: integer; const strdaten: string);
 begin
   { Datenzelle schreiben }
   if (c < low(daten)) or (c > high(daten)) then
@@ -935,7 +935,6 @@ procedure TdynGrid.setdrawgrid(setdrawgrid: PDrawgrid);
 begin
   if assigned(drawgrid) then
     drawgrid.OnDrawcell := nil;
-  drawgrid := nil;
 
   drawgrid := setdrawgrid; { Gridpointer merken }
   if drawgrid <> nil then { ggf. Grid Drawcell zuweisen }
