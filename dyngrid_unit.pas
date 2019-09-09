@@ -115,21 +115,21 @@ type
     fcs_Base: SyncObjs.TCriticalSection;
 
     { Bezeichnung }
-    debugname: string;
+    fdebugname: string;
 
     { Datenarray }
-    daten: coldata;
+    fdaten: coldata;
 
-    datamemblockcurrent: integer;
-    mrc: integer; { memory rowcount (speicherreservierung) }
-    erc: integer; { extern rowcount (rückgabe) }
+    fdatamemblockcurrent: integer;
+    fmrc: integer; { memory rowcount (speicherreservierung) }
+    ferc: integer; { extern rowcount (rückgabe) }
 
-    ccinvis: integer; { anzahl der nicht visualisierten Spalten }
+    fccinvis: integer; { anzahl der nicht visualisierten Spalten }
 
     { Visualisierung }
-    hlrow: integer;
-    drawgrid: PDrawgrid;
-    drawgrid_autorepaint: boolean;
+    fhlrow: integer;
+    fdrawgrid: PDrawgrid;
+    fdrawgrid_autorepaint: boolean;
     procedure drawgrid_OnDrawCell(Sender: TObject; ACol, ARow: integer;
       Rect: TRect; State: TGridDrawState);
     procedure drawgrid_setup;
@@ -243,20 +243,20 @@ const
 constructor TdynGrid.Create(const setdebugname: string; setdrawgrid: PDrawgrid);
 begin
   inherited Create; { constructor von TObject aufrufen }
-  datamemblockcurrent := datamemblockdefault;
+  fdatamemblockcurrent := datamemblockdefault;
 
   fcs_FileIO := SyncObjs.TCriticalSection.Create;
   fcs_Graphic := SyncObjs.TCriticalSection.Create;
   fcs_Base := SyncObjs.TCriticalSection.Create;
 
-  debugname := setdebugname; { Namen merken }
+  fdebugname := setdebugname; { Namen merken }
 
   clearall; { clear }
 
-  drawgrid := setdrawgrid; { Gridpointer merken }
-  if drawgrid <> nil then { ggf. Grid Drawcell zuweisen }
+  fdrawgrid := setdrawgrid; { Gridpointer merken }
+  if fdrawgrid <> nil then { ggf. Grid Drawcell zuweisen }
   begin
-    drawgrid.OnDrawcell := drawgrid_OnDrawCell;
+    fdrawgrid.OnDrawcell := drawgrid_OnDrawCell;
 
     { ggf. Ausgabegrid mit ändern }
     drawgrid_setup; // eigene Threadsicherung
@@ -318,7 +318,7 @@ begin
         begin { nix } end;
       end;
       MessageDlg('TdynGrid: checkfileidentifier(): ' + e.message + #10#13 +
-        rssource + debugname, mtwarning, [mbok], 0);
+        rssource + fdebugname, mtwarning, [mbok], 0);
     end;
   end;
 end;
@@ -398,7 +398,7 @@ function TdynGrid.loadfromfile(const datei: string;
       on e: exception do
       begin
         error := 'TdynGrid: loadfromfile(): ' + e.message + #10#13 + rssource +
-          debugname;
+          fdebugname;
         try
           FreeAndNil(frtext);
         except
@@ -497,7 +497,7 @@ begin
           begin { nix } end;
         end;
         MessageDlg('TdynGrid: savetofile(): ' + e.message + #10#13 + rssource +
-          debugname, mtwarning, [mbok], 0);
+          fdebugname, mtwarning, [mbok], 0);
       end;
     end;
   finally
@@ -514,14 +514,14 @@ begin
     fcs_Base.Enter;
 
     // speicherreservierung erst einmal zurück auf vorgabe
-    datamemblockcurrent := datamemblockdefault;
+    fdatamemblockcurrent := datamemblockdefault;
 
     { alle Cols (damit auch alle Rows) löschen }
-    setlength(daten, 0);
-    mrc := 0;
-    erc := 0;
+    setlength(fdaten, 0);
+    fmrc := 0;
+    ferc := 0;
     // ccinvis und colcount nicht
-    hlrow := -1;
+    fhlrow := -1;
   finally
     fcs_Base.Leave;
   end;
@@ -569,9 +569,9 @@ begin
     - ersteinmal length() checken, dann lowercase() vergleichen
   }
   for r := 1 to rowcount do
-    if length(String(daten[col][r - 1])) = lsearch
+    if length(String(fdaten[col][r - 1])) = lsearch
     then { lsucheintrag vorab vorbereitet }
-      if lowercase(String(daten[col][r - 1])) = ssearchkey
+      if lowercase(String(fdaten[col][r - 1])) = ssearchkey
       then { lsucheintrag vorab vorbereitet }
       begin
         Result := r - 1;
@@ -597,17 +597,17 @@ begin
   //try
     // KEINE Critical Section da OnDrawCell von ProgrammThread aufgerufen wird
 
-    if (high(daten) >= (ACol - ccinvis)) and (ACol >= 0) and
-      (ACol <= Pred(colcount) - ccinvis) then
+    if (high(fdaten) >= (ACol - fccinvis)) and (ACol >= 0) and
+      (ACol <= Pred(colcount) - fccinvis) then
     begin
-      if (high(daten[ACol]) >= ARow) and (ARow >= 0) and (ARow <= Pred(rowcount))
+      if (high(fdaten[ACol]) >= ARow) and (ARow >= 0) and (ARow <= Pred(rowcount))
       then
       begin
-        inhalt := String(daten[ACol][ARow]);
+        inhalt := String(fdaten[ACol][ARow]);
         x := Rect.left + 2;
         y := Rect.Top + round((Rect.bottom - Rect.Top) / 2 - TDrawgrid(Sender)
           .Canvas.TextHeight(inhalt) / 2);
-        if ARow = hlrow then
+        if ARow = fhlrow then
         begin
           { diesen Eintrag hervorheben in dem die Eigenschaft fsbold getoggelt wird
             ACHTUNG: .canvas.font weicht von .font ab (z.B. bei aktuellen Eintrag)
@@ -635,16 +635,16 @@ end;
 procedure TdynGrid.drawgrid_setup;
 begin
   { Visualisierung: Colcount/Rowcount setzen wenn geändert }
-  if drawgrid = nil then
+  if fdrawgrid = nil then
     exit;
-  if (drawgrid.rowcount <> rowcount) or (drawgrid.colcount <> colcount - ccinvis)
+  if (fdrawgrid.rowcount <> rowcount) or (fdrawgrid.colcount <> colcount - fccinvis)
   then
   begin
     try
       fcs_Graphic.Enter;
 
-      drawgrid.rowcount := rowcount;
-      drawgrid.colcount := colcount - ccinvis;
+      fdrawgrid.rowcount := rowcount;
+      fdrawgrid.colcount := colcount - fccinvis;
       { Spaltenanzahl - nicht zu visualisierende Spalten }
     finally
       fcs_Graphic.Leave;
@@ -655,18 +655,18 @@ end;
 procedure TdynGrid.drawgrid_repaint(aktrow: integer);
 begin
   { Visualisierung: neu zeichnen }
-  if drawgrid = nil then
+  if fdrawgrid = nil then
     exit;
-  if drawgrid_autorepaint = false then
+  if fdrawgrid_autorepaint = false then
     exit;
 
   try
     fcs_Graphic.Enter;
 
     { Repaint nur wenn übergebene (geänderte) Zelle im sichtbaren Bereich liegt }
-    if ((aktrow >= drawgrid.toprow) and (aktrow <= drawgrid.toprow +
-      drawgrid.VisibleRowCount)) or (aktrow < 0) then
-      drawgrid.Invalidate; // .repaint;
+    if ((aktrow >= fdrawgrid.toprow) and (aktrow <= fdrawgrid.toprow +
+      fdrawgrid.VisibleRowCount)) or (aktrow < 0) then
+      fdrawgrid.Invalidate; // .repaint;
   finally
     fcs_Graphic.Leave;
   end;
@@ -678,13 +678,13 @@ end;
 function TdynGrid.getinvisiblecols: integer;
 begin
   { invisible Cols lesen }
-  Result := ccinvis;
+  Result := fccinvis;
 end;
 
 procedure TdynGrid.setinvisiblecols(wert: integer);
 begin
   { invisible Cols setzen }
-  ccinvis := wert;
+  fccinvis := wert;
 
   { ggf. Ausgabegrid mit ändern }
   drawgrid_setup; // eigene Threadsicherung
@@ -693,7 +693,7 @@ end;
 function TdynGrid.getcolcount: integer;
 begin
   { Colcount lesen }
-  Result := high(daten) + 1;
+  Result := high(fdaten) + 1;
 end;
 
 procedure TdynGrid.setcolcount(wert: integer);
@@ -704,7 +704,7 @@ begin
   if wert < 0 then
   begin
     MessageDlg('TdynGrid: setcolcount(): ' + rsminzero + #10#13 + rssource +
-      debugname, mtwarning, [mbok], 0);
+      fdebugname, mtwarning, [mbok], 0);
     exit;
   end;
   if wert = colcount then
@@ -713,12 +713,12 @@ begin
   try
     fcs_Base.Enter;
 
-    setlength(daten, wert);
-    if high(daten) > -1
+    setlength(fdaten, wert);
+    if high(fdaten) > -1
     then { wenn cols vorhanden (könnte ja 0 gesetzt worden sein) }
     begin
-      for i := low(daten) to high(daten) do
-        setlength(daten[i], mrc);
+      for i := low(fdaten) to high(fdaten) do
+        setlength(fdaten[i], fmrc);
     end;
   finally
     fcs_Base.Leave;
@@ -731,16 +731,16 @@ end;
 function TdynGrid.getrowcount: integer;
 begin
   { Rowcount lesen }
-  if high(daten) < 0 then
+  if high(fdaten) < 0 then
     Result := 0
   else
-    Result := erc;
+    Result := ferc;
 end;
 
 function TdynGrid.getmrc: integer;
 begin
   { int. reservierten Speicher lesen }
-  Result := mrc;
+  Result := fmrc;
 end;
 
 procedure TdynGrid.adjustdatamemblocksize(datacount: integer);
@@ -763,8 +763,8 @@ begin
   // max blockgröße für speichererweiterung (ist natürlich nicht max speichergröße)
 
   // wichtig: hier nur erhöhen, zurückgesetzt wird sie nur beim clear
-  if datamemblocknew > datamemblockcurrent then
-    datamemblockcurrent := datamemblocknew;
+  if datamemblocknew > fdatamemblockcurrent then
+    fdatamemblockcurrent := datamemblocknew;
 end;
 
 procedure TdynGrid.setrowcount(wert: integer);
@@ -776,14 +776,14 @@ begin
   if wert < 0 then
   begin
     MessageDlg('TdynGrid: setrowcount(): ' + rsminzero + #10#13 + rssource +
-      debugname, mtwarning, [mbok], 0);
+      fdebugname, mtwarning, [mbok], 0);
     exit;
   end;
-  if wert = erc then
+  if wert = ferc then
     exit;
 
   { Wert merken (Rowcount nach außen) }
-  erc := wert;
+  ferc := wert;
 
   { hier aufgrund dem gesetztem rowcount die Blockgröße einstellen,
     d.h. die blockgröße steigt mit Anzahl der Daten }
@@ -792,24 +792,24 @@ begin
   { MRC (=int. reservierter Speicher) ermitteln }
   mrcneu := 0;
   while mrcneu < wert do
-    mrcneu := mrcneu + datamemblockcurrent;
+    mrcneu := mrcneu + fdatamemblockcurrent;
 
-  if mrc <> mrcneu then // nur wenn sich die speicherzuordnung geändert hat
+  if fmrc <> mrcneu then // nur wenn sich die speicherzuordnung geändert hat
   begin
     try
       fcs_Base.Enter;
 
       { Ändern der Speicherreservierung }
-      mrc := mrcneu;
-      if high(daten) > -1 then { wenn cols vorhanden }
+      fmrc := mrcneu;
+      if high(fdaten) > -1 then { wenn cols vorhanden }
       begin
-        for i := low(daten) to high(daten) do
-          setlength(daten[i], mrc);
+        for i := low(fdaten) to high(fdaten) do
+          setlength(fdaten[i], fmrc);
       end
       else
       begin
         MessageDlg('TdynGrid: setrowcount(): ' + rsnorowdata + #10#13 + rssource
-          + debugname, mtwarning, [mbok], 0);
+          + fdebugname, mtwarning, [mbok], 0);
         exit;
       end;
     finally
@@ -825,53 +825,53 @@ function TdynGrid.getcellRaw(c, r: integer): TDyngridDatatype;
 begin
   { Datenzelle lesen }
   Result := '';
-  if (c < low(daten)) or (c > high(daten)) then
+  if (c < low(fdaten)) or (c > high(fdaten)) then
   begin
     MessageDlg('TdynGrid: getcell: c (' + inttostr(c) + ') ' + rsrangeerror +
-      #10#13 + rssource + debugname, mtwarning, [mbok], 0);
+      #10#13 + rssource + fdebugname, mtwarning, [mbok], 0);
     exit;
   end;
-  if (r < low(daten[c])) or (r > erc - 1) then
+  if (r < low(fdaten[c])) or (r > ferc - 1) then
   begin
     MessageDlg('TdynGrid: getcell: r (' + inttostr(r) + ') ' + rsrangeerror +
-      #10#13 + rssource + debugname, mtwarning, [mbok], 0);
+      #10#13 + rssource + fdebugname, mtwarning, [mbok], 0);
     exit;
   end;
-  Result := daten[c][r];
+  Result := fdaten[c][r];
 end;
 
 function TdynGrid.getcell(c, r: integer): string;
 begin
   { Datenzelle lesen }
   Result := '';
-  if (c < low(daten)) or (c > high(daten)) then
+  if (c < low(fdaten)) or (c > high(fdaten)) then
   begin
     MessageDlg('TdynGrid: getcell: c (' + inttostr(c) + ') ' + rsrangeerror +
-      #10#13 + rssource + debugname, mtwarning, [mbok], 0);
+      #10#13 + rssource + fdebugname, mtwarning, [mbok], 0);
     exit;
   end;
-  if (r < low(daten[c])) or (r > erc - 1) then
+  if (r < low(fdaten[c])) or (r > ferc - 1) then
   begin
     MessageDlg('TdynGrid: getcell: r (' + inttostr(r) + ') ' + rsrangeerror +
-      #10#13 + rssource + debugname, mtwarning, [mbok], 0);
+      #10#13 + rssource + fdebugname, mtwarning, [mbok], 0);
     exit;
   end;
-  Result := String(daten[c][r]);
+  Result := String(fdaten[c][r]);
 end;
 
 procedure TdynGrid.setcell(c, r: integer; const strdaten: string);
 begin
   { Datenzelle schreiben }
-  if (c < low(daten)) or (c > high(daten)) then
+  if (c < low(fdaten)) or (c > high(fdaten)) then
   begin
     MessageDlg('TdynGrid: setcell: c (' + inttostr(c) + ') ' + rsrangeerror +
-      #10#13 + rssource + debugname, mtwarning, [mbok], 0);
+      #10#13 + rssource + fdebugname, mtwarning, [mbok], 0);
     exit;
   end;
-  if (r < low(daten[c])) or (r > erc - 1) then
+  if (r < low(fdaten[c])) or (r > ferc - 1) then
   begin
     MessageDlg('TdynGrid: setcell: r (' + inttostr(r) + ') ' + rsrangeerror +
-      #10#13 + rssource + debugname, mtwarning, [mbok], 0);
+      #10#13 + rssource + fdebugname, mtwarning, [mbok], 0);
     exit;
   end;
 
@@ -882,7 +882,7 @@ begin
     // strdaten:= util_zeichenfilter(strdaten);
 
     { einfügen ins grid }
-    daten[c][r] := TDyngridDatatype(strdaten);
+    fdaten[c][r] := TDyngridDatatype(strdaten);
 
   finally
     fcs_Base.Leave;
@@ -910,12 +910,12 @@ end;
 
 function TdynGrid.gethighlightrow: integer;
 begin
-  Result := hlrow;
+  Result := fhlrow;
 end;
 
 procedure TdynGrid.sethighlightrow(wert: integer);
 begin
-  hlrow := wert;
+  fhlrow := wert;
 
   { ggf. neu zeichnen (nur wenn Ändrung im sichtbaren Breich liegt) }
   drawgrid_repaint(wert);
@@ -923,23 +923,23 @@ end;
 
 function TdynGrid.getdrawgridautorepaint: boolean;
 begin
-  Result := drawgrid_autorepaint;
+  Result := fdrawgrid_autorepaint;
 end;
 
 procedure TdynGrid.setdrawgridautorepaint(wert: boolean);
 begin
-  drawgrid_autorepaint := wert;
+  fdrawgrid_autorepaint := wert;
 end;
 
 procedure TdynGrid.setdrawgrid(setdrawgrid: PDrawgrid);
 begin
-  if assigned(drawgrid) then
-    drawgrid.OnDrawcell := nil;
+  if assigned(fdrawgrid) then
+    fdrawgrid.OnDrawcell := nil;
 
-  drawgrid := setdrawgrid; { Gridpointer merken }
-  if drawgrid <> nil then { ggf. Grid Drawcell zuweisen }
+  fdrawgrid := setdrawgrid; { Gridpointer merken }
+  if fdrawgrid <> nil then { ggf. Grid Drawcell zuweisen }
   begin
-    drawgrid.OnDrawcell := drawgrid_OnDrawCell;
+    fdrawgrid.OnDrawcell := drawgrid_OnDrawCell;
 
     { ggf. Ausgabegrid mit ändern }
     drawgrid_setup; // eigene Threadsicherung
@@ -950,34 +950,34 @@ function TdynGrid.getrow: integer;
 begin
   { Visualisierung: row holen }
   Result := -1;
-  if drawgrid = nil then
+  if fdrawgrid = nil then
     exit;
-  Result := drawgrid.row;
+  Result := fdrawgrid.row;
 end;
 
 procedure TdynGrid.setrow(wert: integer);
 begin
   { Visualisierung: row setzen }
-  if drawgrid = nil then
+  if fdrawgrid = nil then
     exit;
-  drawgrid.row := wert;
+  fdrawgrid.row := wert;
 end;
 
 function TdynGrid.getcol: integer;
 begin
   { Visualisierung: col holen }
   Result := -1;
-  if drawgrid = nil then
+  if fdrawgrid = nil then
     exit;
-  Result := drawgrid.col;
+  Result := fdrawgrid.col;
 end;
 
 procedure TdynGrid.setcol(wert: integer);
 begin
   { Visualisierung: col setzen }
-  if drawgrid = nil then
+  if fdrawgrid = nil then
     exit;
-  drawgrid.col := wert;
+  fdrawgrid.col := wert;
 end;
 
 // ----------------------------------------------------------------------------
