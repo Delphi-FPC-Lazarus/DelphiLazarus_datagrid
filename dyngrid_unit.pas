@@ -36,14 +36,11 @@
   also die Speicherreservierung nur Blockweise ändere.
 
   Das DynGrid kann zusätzlich die beinhalteten Daten in einem Drawgrid ausgeben,
-  hierzu muss dem Constructor ein Pointer auf ein Drawgrid übergeben werden.
+  dies kann über die entsprechende Funktion passieren in dem ein Pointer auf ein Drawgrid übergeben wird.
   Wird als Pointer nil übergeben, wird nicht visualisiert.
-
-  Die wichtigsten Eigenschaften vom Drawgrid können direkt über DynGrid
-  zugegriffen werden, alle anderen vom Drawgrid direkt.
-
-  Alle Ereignisse bis auf onDrawCell vom Drawgrid können zugewiesen werden,
-  das onDrawCell Ereigniss kann über das onDrawCell Ereignis zugegriffen werden.
+  In dem Falle können alle Eigenschaften und alle Ereignisse des Drawgrid bis auf onDrawCell frei zugewiesen werden.
+  (onDrawCell wird von dieser Komponente bedient und direkt mit Daten aus dem internen Speicher befüllt, Performance relevant)
+  Die wichtigsten Eigenschaften vom Drawgrid können direkt über diese Komponente zugegriffen werden, alle anderen vom Drawgrid direkt.
 
   Intern werden die Daten in UTF8String gehalten um Speicher zu sparen
   Das Speichern kann optional in ANSI oder auch Unicode geschehen,
@@ -73,7 +70,6 @@
 }
 
 {$I ..\share_settings.inc}
-
 unit dyngrid_unit;
 
 interface
@@ -88,6 +84,18 @@ uses
 
 // ----------------------------------------------------------------------------
 
+const
+  dyngrid_trenner: char = {$IFDEF FPC}#161{$ELSE}'¡'{$ENDIF};
+  dyngrid_subtrenner: char = {$IFDEF FPC}#191{$ELSE}'¿'{$ENDIF};
+
+  dyngrid_colinf_maxsubcol = 49;
+  dyngrid_colinf_maxcol = 9;
+  dyngrid_defaultsubcolwidth = 45;
+  dyngrid_subcolgap = 5;
+
+  lf: char = #10;
+  cr: char = #13;
+
 type
   TDyngridDatatype = UTF8String;
 
@@ -100,16 +108,15 @@ type
 type
   coldata = array of rowdata;
 
-type
-  TDrawCellEvent = procedure(Sender: TObject; ACol, ARow: Longint; Rect: TRect;
-    State: TGridDrawState) of object;
+  colsubcols = array [0 .. dyngrid_colinf_maxsubcol] of integer;
+
+  colinf = record
+    cols: array [0 .. dyngrid_colinf_maxcol] of colsubcols;
+  end;
 
 type
   TdynGrid = class(TObject)
   private
-    { GridDrawcell für externe Anbindung }
-    FOnDrawcell: TDrawCellEvent;
-
     fcs_FileIO: SyncObjs.TCriticalSection;
     fcs_Graphic: SyncObjs.TCriticalSection;
     fcs_Base: SyncObjs.TCriticalSection;
@@ -128,8 +135,13 @@ type
 
     { Visualisierung }
     fhlrow: integer;
+
     fdrawgrid: PDrawgrid;
     fdrawgrid_autorepaint: boolean;
+    fdrawgrid_columnsubmode: boolean;
+    fdrawgrid_columnsubseparator: string;
+    fdrawgrid_columnsubinf: colinf;
+
     procedure drawgrid_OnDrawCell(Sender: TObject; ACol, ARow: integer;
       Rect: TRect; State: TGridDrawState);
     procedure drawgrid_setup;
@@ -155,6 +167,15 @@ type
     procedure setdrawgridautorepaint(wert: boolean);
     function getdrawgridautorepaint: boolean;
 
+    procedure setdrawgridcolumnsubmode(wert: boolean);
+    function getdrawgridcolumnsubmode: boolean;
+
+    procedure setdrawgridcolumnsubseparator(wert: string);
+    function getdrawgridcolumnsubseparator: string;
+
+    function getdrawgridcolumnsubinf: colinf;
+    procedure setdrawgridcolumnsubinf(wert: colinf);
+
     function getrow: integer;
     procedure setrow(wert: integer);
 
@@ -167,7 +188,6 @@ type
     function util_zeichenfilter(strdaten: string): string;
   public
     { Public-Deklarationen }
-    property OnDrawcell: TDrawCellEvent read FOnDrawcell write FOnDrawcell;
 
     { --- folgendes ist nur für Debug-Zwecke --- }
     function getmrc: integer;
@@ -195,16 +215,25 @@ type
 
     property drawgridautorepaint: boolean read getdrawgridautorepaint
       write setdrawgridautorepaint;
+    property drawgrid_columnsubmode: boolean read getdrawgridcolumnsubmode
+      write setdrawgridcolumnsubmode;
+    property drawgrid_columnsubseparator: string
+      read getdrawgridcolumnsubseparator write setdrawgridcolumnsubseparator;
+    property drawgrid_columnsubinf: colinf read getdrawgridcolumnsubinf
+      write setdrawgridcolumnsubinf;
 
     property row: integer read getrow write setrow;
     property col: integer read getcol write setcol;
 
     { --- folgendes ist für das laden und Speichern der Daten --- }
-    function checkfileidentifier(const datei: string; identifier: string): boolean;
+    function checkfileidentifier(const datei: string;
+      identifier: string): boolean;
     // autodetect BOM
-    function loadfromfile(const datei: string; optionalidentifier: string): boolean;
+    function loadfromfile(const datei: string;
+      optionalidentifier: string): boolean;
     // autodetect BOM
-    function savetofile(const datei: string; optionalidentifier: string): boolean;
+    function savetofile(const datei: string;
+      optionalidentifier: string): boolean;
     // DynGrid Encoding mit BOM
 
     { --- folgendes ist als sonderfunktion freigegeben --- }
@@ -230,11 +259,6 @@ implementation
 // ----------------------------------------------------------------------------
 
 const
-  trenner: char = {$IFDEF FPC}#161{$ELSE}'¡'{$ENDIF};
-  lf: char = #10;
-  cr: char = #13;
-
-const
   datamemblockdefault = 10000; // Vorgabewert (besser zu groß als zu klein)
 
   // ----------------------------------------------------------------------------
@@ -254,7 +278,11 @@ begin
   clearall; { clear }
 
   fdrawgrid := setdrawgrid; { Gridpointer merken }
-  if fdrawgrid <> nil then { ggf. Grid Drawcell zuweisen }
+  fdrawgrid_autorepaint := false;
+  fdrawgrid_columnsubmode := false;
+  fdrawgrid_columnsubseparator := ',';
+
+  if Assigned(fdrawgrid) then { ggf. Grid Drawcell zuweisen }
   begin
     fdrawgrid.OnDrawcell := drawgrid_OnDrawCell;
 
@@ -369,12 +397,12 @@ function TdynGrid.loadfromfile(const datei: string;
             rowcount := dr + 1;
 
           { einlesen }
-          if zeile[length(zeile)] <> trenner then
-            zeile := zeile + trenner;
+          if zeile[length(zeile)] <> dyngrid_trenner then
+            zeile := zeile + dyngrid_trenner;
           c := 0;
           tmpstr := '';
           for i := 1 to length(zeile) do
-            if zeile[i] = trenner then
+            if zeile[i] = dyngrid_trenner then
             begin
               if c <= colcount - 1 then
               begin
@@ -444,8 +472,8 @@ begin
 
 end;
 
-function TdynGrid.savetofile(const datei: string; optionalidentifier: string)
-  : boolean;
+function TdynGrid.savetofile(const datei: string;
+  optionalidentifier: string): boolean;
 var
   fwtext: TTextFileWriter;
   r, c: integer;
@@ -477,9 +505,9 @@ begin
           tmpstr := util_zeichenfilter(tmpstr);
 
           for i := 1 to length(tmpstr) do
-            if tmpstr[i] = trenner then
+            if tmpstr[i] = dyngrid_trenner then
               tmpstr[i] := ' ';
-          zeile := zeile + tmpstr + trenner;
+          zeile := zeile + tmpstr + dyngrid_trenner;
         end;
         fwtext.WriteLine(zeile);
       end;
@@ -588,57 +616,121 @@ procedure TdynGrid.drawgrid_OnDrawCell(Sender: TObject; ACol, ARow: integer;
   Rect: TRect; State: TGridDrawState);
 var
   inhalt: string;
-  x, y: integer;
+  x, xinc, y: integer;
+  iSrc, iSubfield: integer;
+  arinhalt: array [0 .. dyngrid_colinf_maxsubcol] of string;
+  subRect: TRect;
 begin
-  { Visualisierung: Ausgabe }
+  { Visualisierung: Ausgabe
+    Hier muss alles generisch bzw. über properties gesteuert abgehandelt werden
+
+    Alternative wäre ein externes draw event zu schmeißen das von der Anwendung bedient wird,
+    in dem Falle müssten aber zwingend neben col, row, drarect auch die Daten mitgegeben werden um die Performance zu erhalten!
+  }
   if Sender = nil then
     exit;
 
-  //try
-    // KEINE Critical Section da OnDrawCell von ProgrammThread aufgerufen wird
+  // try
+  // KEINE Critical Section da OnDrawCell von ProgrammThread aufgerufen wird
 
-    if (high(fdaten) >= (ACol - fccinvis)) and (ACol >= 0) and
-      (ACol <= Pred(colcount) - fccinvis) then
+  if (high(fdaten) >= (ACol - fccinvis)) and (ACol >= 0) and
+    (ACol <= Pred(colcount) - fccinvis) then
+  begin
+    if (high(fdaten[ACol]) >= ARow) and (ARow >= 0) and (ARow <= Pred(rowcount))
+    then
     begin
-      if (high(fdaten[ACol]) >= ARow) and (ARow >= 0) and (ARow <= Pred(rowcount))
-      then
+      inhalt := String(fdaten[ACol][ARow]);
+      if length(inhalt) > 0 then
       begin
-        inhalt := String(fdaten[ACol][ARow]);
-        x := Rect.left + 2;
-        y := Rect.Top + round((Rect.bottom - Rect.Top) / 2 - TDrawgrid(Sender)
-          .Canvas.TextHeight(inhalt) / 2);
-        if ARow = fhlrow then
+        // direkt aus den Daten, performancerelevant
+        if (fdrawgrid_columnsubmode = false) or
+          (StrPos(pchar(inhalt), pchar(dyngrid_subtrenner)) = nil) then
         begin
-          { diesen Eintrag hervorheben in dem die Eigenschaft fsbold getoggelt wird
-            ACHTUNG: .canvas.font weicht von .font ab (z.B. bei aktuellen Eintrag)
-          }
-          if fsbold in TDrawgrid(Sender).Canvas.font.Style then
-            TDrawgrid(Sender).Canvas.font.Style := []
-          else
-            TDrawgrid(Sender).Canvas.font.Style := TDrawgrid(Sender)
-              .Canvas.font.Style + [fsbold]
-        end;
-        { ausgeben }
-        TDrawgrid(Sender).Canvas.TextOut(x, y, inhalt);
-      end;
-    end;
+          { Einfache Ausgabe }
+          x := Rect.left + 2;
+          y := Rect.Top + round((Rect.bottom - Rect.Top) / 2 - TDrawgrid(Sender)
+            .Canvas.TextHeight(inhalt) / 2);
+          if ARow = fhlrow then
+          begin
+            { diesen Eintrag hervorheben in dem die Eigenschaft fsbold getoggelt wird
+              ACHTUNG: .canvas.font weicht von .font ab (z.B. bei aktuellen Eintrag)
+            }
+            if fsbold in TDrawgrid(Sender).Canvas.font.Style then
+              TDrawgrid(Sender).Canvas.font.Style := []
+            else
+              TDrawgrid(Sender).Canvas.font.Style := TDrawgrid(Sender)
+                .Canvas.font.Style + [fsbold]
+          end;
+          { ausgeben }
+          inhalt := StringReplace(inhalt, dyngrid_subtrenner,
+            fdrawgrid_columnsubseparator, [rfReplaceAll]);
+          TDrawgrid(Sender).Canvas.TextOut(x, y, inhalt);
+        end
+        else
+        begin
+          { SubSpalten Ausgabe }
+          for iSubfield := Low(arinhalt) to High(arinhalt) do
+          begin
+            arinhalt[iSubfield] := '';
+          end;
+          iSubfield := low(arinhalt);
+          for iSrc := 1 to length(inhalt) do
+          begin
+            if (inhalt[iSrc] = dyngrid_subtrenner) then
+              inc(iSubfield)
+            else
+              arinhalt[iSubfield] := arinhalt[iSubfield] + inhalt[iSrc];
+            if iSubfield > high(arinhalt) then
+              break;
+          end;
 
-    { ggf. extern angebundene DrawCell aufrufen }
-    if assigned(FOnDrawcell) then
-      FOnDrawcell(Sender, ACol, ARow, Rect, State);
-  //finally
-    //
-  //end
+          x := Rect.left + 2;
+          y := Rect.Top + round((Rect.bottom - Rect.Top) / 2 - TDrawgrid(Sender)
+            .Canvas.TextHeight(inhalt) / 2);
+
+          for iSubfield := Low(arinhalt) to High(arinhalt) do
+          begin
+            if (ACol >= low(fdrawgrid_columnsubinf.cols)) and
+              (ACol <= high(fdrawgrid_columnsubinf.cols)) and
+              (iSubfield >= low(fdrawgrid_columnsubinf.cols[ACol])) and
+              (iSubfield <= high(fdrawgrid_columnsubinf.cols[ACol])) then
+              xinc := fdrawgrid_columnsubinf.cols[ACol, iSubfield]
+            else
+              xinc := dyngrid_defaultsubcolwidth;
+
+            if length(arinhalt[iSubfield]) > 0 then
+            begin
+              // Rect.Left:= x;
+              // TDrawgrid(Sender).Canvas.FillRect(Rect);
+              // TDrawgrid(Sender).Canvas.TextOut(x+dyngrid_subcolgap, y, arinhalt[iSubfield]);
+              subRect := Rect;
+              subRect.left := x;
+              subRect.Right := x + xinc;
+              TDrawgrid(Sender).Canvas.TextRect(subRect, x + dyngrid_subcolgap,
+                y, arinhalt[iSubfield]);
+            end;
+            inc(x, xinc + dyngrid_subcolgap);
+          end;
+        end;
+
+      end; // Inhalt vorhanden
+    end; // Zeile gültig
+  end; // Spalte gültig
+
+  // finally
+  //
+  // end
 
 end;
 
 procedure TdynGrid.drawgrid_setup;
 begin
   { Visualisierung: Colcount/Rowcount setzen wenn geändert }
-  if fdrawgrid = nil then
+  if not Assigned(fdrawgrid) then
     exit;
-  if (fdrawgrid.rowcount <> rowcount) or (fdrawgrid.colcount <> colcount - fccinvis)
-  then
+
+  if (fdrawgrid.rowcount <> rowcount) or
+    (fdrawgrid.colcount <> colcount - fccinvis) then
   begin
     try
       fcs_Graphic.Enter;
@@ -655,7 +747,7 @@ end;
 procedure TdynGrid.drawgrid_repaint(aktrow: integer);
 begin
   { Visualisierung: neu zeichnen }
-  if fdrawgrid = nil then
+  if not Assigned(fdrawgrid) then
     exit;
   if fdrawgrid_autorepaint = false then
     exit;
@@ -664,7 +756,7 @@ begin
     fcs_Graphic.Enter;
 
     { Repaint nur wenn übergebene (geänderte) Zelle im sichtbaren Bereich liegt }
-    if ((aktrow >= fdrawgrid.toprow) and (aktrow <= fdrawgrid.toprow +
+    if ((aktrow >= fdrawgrid.TopRow) and (aktrow <= fdrawgrid.TopRow +
       fdrawgrid.VisibleRowCount)) or (aktrow < 0) then
       fdrawgrid.Invalidate; // .repaint;
   finally
@@ -699,6 +791,7 @@ end;
 procedure TdynGrid.setcolcount(wert: integer);
 var
   i: integer;
+  c, csub: integer;
 begin
   { Colcount setzen (Rowcount für neue Spalten anpassen) }
   if wert < 0 then
@@ -714,12 +807,13 @@ begin
     fcs_Base.Enter;
 
     setlength(fdaten, wert);
-    if high(fdaten) > -1
-    then { wenn cols vorhanden (könnte ja 0 gesetzt worden sein) }
+    { wenn cols vorhanden (könnte ja 0 gesetzt worden sein) }
+    if high(fdaten) > -1 then
     begin
       for i := low(fdaten) to high(fdaten) do
         setlength(fdaten[i], fmrc);
     end;
+
   finally
     fcs_Base.Leave;
   end;
@@ -901,7 +995,8 @@ begin
   { Steuerzeichen filtern und daten einfügen }
   for i := 1 to length(strdaten) do
   begin
-    if (strdaten[i] = trenner) or (strdaten[i] = lf) or (strdaten[i] = cr) then
+    if (strdaten[i] = dyngrid_trenner) or (strdaten[i] = lf) or
+      (strdaten[i] = cr) then
       strdaten[i] := ' ';
   end;
 
@@ -931,13 +1026,43 @@ begin
   fdrawgrid_autorepaint := wert;
 end;
 
+function TdynGrid.getdrawgridcolumnsubmode: boolean;
+begin
+  Result := fdrawgrid_columnsubmode;
+end;
+
+procedure TdynGrid.setdrawgridcolumnsubmode(wert: boolean);
+begin
+  fdrawgrid_columnsubmode := wert;
+end;
+
+function TdynGrid.getdrawgridcolumnsubseparator: string;
+begin
+  Result := fdrawgrid_columnsubseparator;
+end;
+
+procedure TdynGrid.setdrawgridcolumnsubseparator(wert: string);
+begin
+  fdrawgrid_columnsubseparator := wert;
+end;
+
+function TdynGrid.getdrawgridcolumnsubinf: colinf;
+begin
+  Result := fdrawgrid_columnsubinf;
+end;
+
+procedure TdynGrid.setdrawgridcolumnsubinf(wert: colinf);
+begin
+  fdrawgrid_columnsubinf := wert;
+end;
+
 procedure TdynGrid.setdrawgrid(setdrawgrid: PDrawgrid);
 begin
-  if assigned(fdrawgrid) then
+  if Assigned(fdrawgrid) then
     fdrawgrid.OnDrawcell := nil;
 
   fdrawgrid := setdrawgrid; { Gridpointer merken }
-  if fdrawgrid <> nil then { ggf. Grid Drawcell zuweisen }
+  if Assigned(fdrawgrid) then { ggf. Grid Drawcell zuweisen }
   begin
     fdrawgrid.OnDrawcell := drawgrid_OnDrawCell;
 
@@ -950,7 +1075,7 @@ function TdynGrid.getrow: integer;
 begin
   { Visualisierung: row holen }
   Result := -1;
-  if fdrawgrid = nil then
+  if not Assigned(fdrawgrid) then
     exit;
   Result := fdrawgrid.row;
 end;
@@ -958,7 +1083,7 @@ end;
 procedure TdynGrid.setrow(wert: integer);
 begin
   { Visualisierung: row setzen }
-  if fdrawgrid = nil then
+  if not Assigned(fdrawgrid) then
     exit;
   fdrawgrid.row := wert;
 end;
@@ -967,7 +1092,7 @@ function TdynGrid.getcol: integer;
 begin
   { Visualisierung: col holen }
   Result := -1;
-  if fdrawgrid = nil then
+  if not Assigned(fdrawgrid) then
     exit;
   Result := fdrawgrid.col;
 end;
@@ -975,7 +1100,7 @@ end;
 procedure TdynGrid.setcol(wert: integer);
 begin
   { Visualisierung: col setzen }
-  if fdrawgrid = nil then
+  if not Assigned(fdrawgrid) then
     exit;
   fdrawgrid.col := wert;
 end;
